@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+
+# Environment
+.env
+.env.local
+
+# Data / DB
+backend/data/
+backend/*.db
+backend/*.json
+!backend/package.json
+
+# Build artifacts
+dist/
+build/
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Generated previews
+backend/quality_preview.html
+quality_comparison.html
+
+# Output dirs
+output/
+scenes/
