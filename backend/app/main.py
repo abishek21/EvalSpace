@@ -125,7 +125,7 @@ async def run_job(job_id: str, background_tasks: BackgroundTasks):
         if last_err:
             raise HTTPException(
                 status_code=503,
-                detail=f"GPU worker not reachable after 3 attempts. Start Colab server and set GPU_WORKER_URL. Error: {last_err}",
+                detail=f"GPU worker not reachable after 3 attempts. Set RUNPOD_ENDPOINT_ID and RUNPOD_API_KEY. Error: {last_err}",
             )
 
     # Run in background — choose processor based on job type / dataset source

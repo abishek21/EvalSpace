@@ -3,5 +3,5 @@ accelerate
 bitsandbytes
 qwen-vl-utils
 Pillow
-flask
+runpod~=1.7.6
 torch

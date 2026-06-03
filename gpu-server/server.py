@@ -1,40 +1,24 @@
 """
 GPU Inference Server for Spatial Reasoning VLM evaluation.
 
-Loads a Qwen2.5-VL model and exposes /health and /infer endpoints.
-Designed to run on RunPod, Colab, or any GPU machine.
+RunPod Serverless handler — loads a Qwen2.5-VL model at startup,
+processes inference requests via RunPod's job queue.
 
-Usage:
-    python server.py                           # Default: Qwen2.5-VL-3B
-    python server.py --model Qwen/Qwen2.5-VL-7B-Instruct
-    python server.py --port 8080
+Also works locally:
+    python server.py --test_input '{"input": {"user_prompt": "Hello"}}'
 """
-import argparse
 import base64
 import os
 import torch
 from io import BytesIO
-from flask import Flask, request, jsonify
 from PIL import Image
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
+import runpod
 
-# ─── Parse args ──────────────────────────────────────────────────────
+# ─── Config ──────────────────────────────────────────────────────────
 
-parser = argparse.ArgumentParser(description="GPU VLM Inference Server")
-parser.add_argument("--model", type=str,
-                    default=os.environ.get("MODEL_ID", "Qwen/Qwen2.5-VL-3B-Instruct"),
-                    help="HuggingFace model ID")
-parser.add_argument("--port", type=int,
-                    default=int(os.environ.get("PORT", "5000")),
-                    help="Server port")
-parser.add_argument("--quantize", type=str,
-                    default=os.environ.get("QUANTIZE", "auto"),
-                    choices=["auto", "4bit", "none"],
-                    help="Quantization: auto (based on GPU), 4bit, or none")
-args = parser.parse_args()
-
-MODEL_ID = args.model
-PORT = args.port
+MODEL_ID = os.environ.get("MODEL_ID", "Qwen/Qwen2.5-VL-3B-Instruct")
+QUANTIZE = os.environ.get("QUANTIZE", "auto")
 
 # ─── Load model ──────────────────────────────────────────────────────
 
@@ -51,9 +35,9 @@ if torch.cuda.is_available():
 
 # Decide quantization
 use_4bit = False
-if args.quantize == "4bit":
+if QUANTIZE == "4bit":
     use_4bit = True
-elif args.quantize == "auto":
+elif QUANTIZE == "auto":
     # 4-bit if <24GB GPU or using 7B+ model
     if gpu_mem_gb < 24 or "7B" in MODEL_ID or "7b" in MODEL_ID:
         use_4bit = True
@@ -126,25 +110,13 @@ def run_inference(system_prompt: str, user_text: str, images: list = None,
     return processor.decode(generated, skip_special_tokens=True)
 
 
-# ─── Flask API ───────────────────────────────────────────────────────
+# ─── RunPod Handler ──────────────────────────────────────────────────
 
-app = Flask(__name__)
-
-
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({
-        "status": "ready",
-        "model": MODEL_ID,
-        "gpu": gpu_name,
-        "gpu_memory_gb": round(gpu_mem_gb, 1),
-    })
-
-
-@app.route("/infer", methods=["POST"])
-def infer():
+def handler(job):
     """
-    POST /infer
+    RunPod serverless handler.
+
+    Expected input:
     {
         "system_prompt": "...",
         "user_prompt": "...",
@@ -154,12 +126,12 @@ def infer():
     }
     """
     try:
-        data = request.json
-        system_prompt = data.get("system_prompt", "You are a helpful assistant.")
-        user_prompt = data.get("user_prompt", "")
-        image_b64s = data.get("images", [])
-        max_tokens = data.get("max_tokens", 512)
-        temperature = data.get("temperature", 0.7)
+        job_input = job["input"]
+        system_prompt = job_input.get("system_prompt", "You are a helpful assistant.")
+        user_prompt = job_input.get("user_prompt", "")
+        image_b64s = job_input.get("images", [])
+        max_tokens = job_input.get("max_tokens", 512)
+        temperature = job_input.get("temperature", 0.7)
 
         # Decode base64 images
         pil_images = []
@@ -177,23 +149,20 @@ def infer():
             temperature=temperature,
         )
 
-        return jsonify({
+        return {
             "text": result,
             "model": MODEL_ID,
             "tokens_generated": len(result.split()),
-        })
+        }
 
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        return {"error": str(e)}
 
 
-# ─── Run ─────────────────────────────────────────────────────────────
+# ─── Start ───────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
-    print(f"\n🚀 GPU Inference Server starting on port {PORT}")
-    print(f"   Model: {MODEL_ID}")
-    print(f"   GPU:   {gpu_name} ({gpu_mem_gb:.1f}GB)")
-    print(f"   Test:  curl http://localhost:{PORT}/health\n")
-    app.run(host="0.0.0.0", port=PORT)
+print(f"✅ Starting RunPod serverless handler")
+print(f"   Model: {MODEL_ID} | GPU: {gpu_name} ({gpu_mem_gb:.1f}GB)")
+runpod.serverless.start({"handler": handler})
