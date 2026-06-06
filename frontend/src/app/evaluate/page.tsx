@@ -8,8 +8,23 @@ import { Suspense } from "react";
 type Dataset = { id: string; name: string; scenario_count: number };
 type EvalRun = {
   id: string; dataset_id: string; dataset_name: string; model: string;
-  metrics: { accuracy: number; correct: number; total: number; stable_accuracy: number; unstable_accuracy: number; stable_correct: number; stable_total: number; unstable_correct: number; unstable_total: number };
+  metrics: {
+    accuracy: number; correct: number; total: number;
+    task_type?: string; positive_label?: string; negative_label?: string;
+    stable_accuracy: number; unstable_accuracy: number;
+    stable_correct: number; stable_total: number;
+    unstable_correct: number; unstable_total: number;
+    positive_accuracy?: number; negative_accuracy?: number;
+    positive_correct?: number; positive_total?: number;
+    negative_correct?: number; negative_total?: number;
+  };
   created_at: string; job_id?: string;
+};
+
+const ENV_BADGE: Record<string, { icon: string; label: string }> = {
+  stacking_stability: { icon: "🏗️", label: "Stacking" },
+  collision_prediction: { icon: "🎱", label: "Collision" },
+  spatial_fitting: { icon: "🔲", label: "Spatial Fitting" },
 };
 
 function EvaluateContent() {
@@ -186,7 +201,14 @@ function EvaluateContent() {
                       <span className="text-sm font-medium text-gray-900">{run.model}</span>
                       <span className="text-sm font-bold text-violet-600 pr-5">{run.metrics.accuracy}%</span>
                     </div>
-                    <p className="text-xs text-gray-500">{run.dataset_name} · {new Date(run.created_at).toLocaleDateString()}</p>
+                    <div className="flex items-center gap-2">
+                      {run.metrics.task_type && ENV_BADGE[run.metrics.task_type] && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+                          {ENV_BADGE[run.metrics.task_type].icon} {ENV_BADGE[run.metrics.task_type].label}
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-500">{run.dataset_name} · {new Date(run.created_at).toLocaleDateString()}</span>
+                    </div>
                   </button>
                   <button onClick={async (e) => { e.stopPropagation(); if (!confirm("Delete this eval run?")) return; await fetch(`/api/eval-runs/${run.id}`, { method: "DELETE" }); setEvalRuns(prev => prev.filter(r => r.id !== run.id)); if (selectedRun?.id === run.id) setSelectedRun(null); }}
                     className="absolute top-2.5 right-2.5 p-1 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
@@ -206,7 +228,14 @@ function EvaluateContent() {
                   {/* Header */}
                   <div className="flex items-start justify-between">
                     <div>
-                      <h2 className="text-xl font-semibold text-gray-900">{selectedRun.model}</h2>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h2 className="text-xl font-semibold text-gray-900">{selectedRun.model}</h2>
+                        {selectedRun.metrics.task_type && ENV_BADGE[selectedRun.metrics.task_type] && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+                            {ENV_BADGE[selectedRun.metrics.task_type].icon} {ENV_BADGE[selectedRun.metrics.task_type].label}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-500 mt-1">
                         Dataset: {selectedRun.dataset_name} · {new Date(selectedRun.created_at).toLocaleString()}
                       </p>
@@ -220,14 +249,14 @@ function EvaluateContent() {
                   {/* Metrics */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-100">
-                      <p className="text-xs text-emerald-600 font-medium mb-1">Stable Scenarios</p>
-                      <p className="text-2xl font-bold text-emerald-700">{selectedRun.metrics.stable_accuracy}%</p>
-                      <p className="text-xs text-emerald-600 mt-1">{selectedRun.metrics.stable_correct}/{selectedRun.metrics.stable_total} correct</p>
+                      <p className="text-xs text-emerald-600 font-medium mb-1">{selectedRun.metrics.positive_label ? selectedRun.metrics.positive_label.charAt(0).toUpperCase() + selectedRun.metrics.positive_label.slice(1) : "Stable"} Scenarios</p>
+                      <p className="text-2xl font-bold text-emerald-700">{selectedRun.metrics.positive_accuracy ?? selectedRun.metrics.stable_accuracy}%</p>
+                      <p className="text-xs text-emerald-600 mt-1">{selectedRun.metrics.positive_correct ?? selectedRun.metrics.stable_correct}/{selectedRun.metrics.positive_total ?? selectedRun.metrics.stable_total} correct</p>
                     </div>
                     <div className="bg-rose-50 rounded-xl p-4 border border-rose-100">
-                      <p className="text-xs text-rose-600 font-medium mb-1">Unstable Scenarios</p>
-                      <p className="text-2xl font-bold text-rose-700">{selectedRun.metrics.unstable_accuracy}%</p>
-                      <p className="text-xs text-rose-600 mt-1">{selectedRun.metrics.unstable_correct}/{selectedRun.metrics.unstable_total} correct</p>
+                      <p className="text-xs text-rose-600 font-medium mb-1">{selectedRun.metrics.negative_label ? selectedRun.metrics.negative_label.charAt(0).toUpperCase() + selectedRun.metrics.negative_label.slice(1) : "Unstable"} Scenarios</p>
+                      <p className="text-2xl font-bold text-rose-700">{selectedRun.metrics.negative_accuracy ?? selectedRun.metrics.unstable_accuracy}%</p>
+                      <p className="text-xs text-rose-600 mt-1">{selectedRun.metrics.negative_correct ?? selectedRun.metrics.unstable_correct}/{selectedRun.metrics.negative_total ?? selectedRun.metrics.unstable_total} correct</p>
                     </div>
                   </div>
 

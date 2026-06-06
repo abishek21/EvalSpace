@@ -79,6 +79,24 @@ COLLISION_USER = """Look at these images of objects on a table. One object is ab
 
 Answer with PREDICTION: HIT or MISS, then REASONING."""
 
+# -- Spatial Fitting --
+FITTING_SYSTEM = """You are a spatial reasoning assistant. You analyze images of an object next to a wall with an opening, and determine whether the object could fit through the opening.
+
+Look at the images carefully and consider:
+- The size of the object relative to the opening
+- Whether the object could be rotated or reoriented to fit
+- The shape of the object vs the shape of the opening
+
+Answer with EXACTLY this format:
+PREDICTION: FITS or DOES NOT FIT
+REASONING: <your reasoning in 2-3 sentences>"""
+
+FITTING_USER = """Look at these images showing an object and a wall with an opening.
+
+{question}
+
+Answer with PREDICTION: FITS or DOES NOT FIT, then REASONING."""
+
 
 def _parse_vlm_prediction(response: str, task_type: str = "stacking_stability") -> tuple[str, str]:
     response_upper = response.upper()
@@ -94,6 +112,16 @@ def _parse_vlm_prediction(response: str, task_type: str = "stacking_stability") 
             prediction = "miss"
         elif "HIT" in response_upper and "MISS" not in response_upper:
             prediction = "hit"
+    elif task_type == "spatial_fitting":
+        # Parse FITS / DOES NOT FIT
+        if "DOES NOT FIT" in response_upper or "DOESN'T FIT" in response_upper:
+            prediction = "no_fit"
+        elif "PREDICTION: FITS" in response_upper or "PREDICTION:FITS" in response_upper:
+            prediction = "fits"
+        elif "NOT FIT" in response_upper or "NO FIT" in response_upper or "CANNOT FIT" in response_upper:
+            prediction = "no_fit"
+        elif "FITS" in response_upper:
+            prediction = "fits"
     else:
         # Parse STABLE / UNSTABLE
         if "PREDICTION: STABLE" in response_upper or "PREDICTION:STABLE" in response_upper:
@@ -186,10 +214,14 @@ async def process_eval_job(job_id: str, config: dict):
         print(f"Evaluating {model} on '{dataset['name']}' ({num_scenarios} scenarios, {task_type})")
 
         # Pick prompts based on task type
-        if is_collision:
+        if task_type == "collision_prediction":
             system_prompt = COLLISION_SYSTEM
             positive_label = "hit"
             negative_label = "miss"
+        elif task_type == "spatial_fitting":
+            system_prompt = FITTING_SYSTEM
+            positive_label = "fits"
+            negative_label = "no_fit"
         else:
             system_prompt = STABILITY_SYSTEM
             positive_label = "stable"
@@ -220,9 +252,10 @@ async def process_eval_job(job_id: str, config: dict):
             print(f"  GT: {gt_answer.upper()}")
 
             # Build VLM prompt based on task type
-            if is_collision:
-                # Only give the VLM the natural language question — NO physics params
+            if task_type == "collision_prediction":
                 vlm_prompt = COLLISION_USER.format(question=question)
+            elif task_type == "spatial_fitting":
+                vlm_prompt = FITTING_USER.format(question=question)
             else:
                 vlm_prompt = STABILITY_USER.format(
                     description=f"Stack (bottom to top): {stack_desc}\n\n{question}"

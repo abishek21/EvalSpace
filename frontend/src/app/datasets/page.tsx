@@ -22,7 +22,14 @@ type Dataset = {
   name: string;
   scenario_count: number;
   created_at: string;
+  task_type?: string;
   scenarios?: Scenario[];
+};
+
+const ENV_BADGE: Record<string, { icon: string; label: string }> = {
+  stacking_stability: { icon: "🏗️", label: "Stacking" },
+  collision_prediction: { icon: "🎱", label: "Collision" },
+  spatial_fitting: { icon: "🔲", label: "Spatial Fitting" },
 };
 
 export default function DatasetsPage() {
@@ -95,7 +102,14 @@ export default function DatasetsPage() {
                       : "border-gray-200 hover:border-gray-300"
                   }`}>
                   <button onClick={() => selectDataset(ds)} className="w-full text-left">
-                    <p className="font-medium text-gray-900 text-sm truncate pr-6">{ds.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-gray-900 text-sm truncate pr-6">{ds.name}</p>
+                      {ds.task_type && ENV_BADGE[ds.task_type] && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium shrink-0">
+                          {ENV_BADGE[ds.task_type].icon} {ENV_BADGE[ds.task_type].label}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-500 mt-0.5">{ds.scenario_count} scenarios · {new Date(ds.created_at).toLocaleDateString()}</p>
                   </button>
                   <button onClick={async (e) => { e.stopPropagation(); if (!confirm(`Delete "${ds.name}"?`)) return; await fetch(`/api/datasets/${ds.id}`, { method: "DELETE" }); setDatasets(prev => prev.filter(d => d.id !== ds.id)); if (selected?.id === ds.id) { setSelected(null); setScenarios([]); } }}
@@ -123,12 +137,19 @@ export default function DatasetsPage() {
                   <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50/50">
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-medium text-gray-700">{selected.name}</span>
+                      {selected.task_type && ENV_BADGE[selected.task_type] && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+                          {ENV_BADGE[selected.task_type].icon} {ENV_BADGE[selected.task_type].label}
+                        </span>
+                      )}
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        sc?.ground_truth?.answer === "stable" || sc?.ground_truth?.stable
+                        sc?.ground_truth?.answer === "stable" || sc?.ground_truth?.answer === "fits" || sc?.ground_truth?.answer === "hit" || sc?.ground_truth?.stable
                           ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                           : "bg-rose-50 text-rose-700 border border-rose-200"
                       }`}>
-                        {(sc?.ground_truth?.answer || (sc?.ground_truth?.stable ? "stable" : "unstable") || "").toUpperCase()}
+                        {selected.task_type === "spatial_fitting"
+                          ? (sc?.ground_truth?.answer === "fits" ? "FITS" : "DOES NOT FIT")
+                          : (sc?.ground_truth?.answer || (sc?.ground_truth?.stable ? "stable" : "unstable") || "").toUpperCase()}
                       </span>
                       {sc?.difficulty && (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 capitalize">{sc.difficulty}</span>
@@ -156,7 +177,7 @@ export default function DatasetsPage() {
                     </div>
 
                     {/* Objects */}
-                    {sc?.ground_truth?.objects && (
+                    {selected.task_type !== "spatial_fitting" && sc?.ground_truth?.objects && (
                       <div>
                         <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Stack (bottom → top)</p>
                         <div className="flex flex-wrap gap-1.5">
@@ -170,9 +191,9 @@ export default function DatasetsPage() {
                     )}
 
                     {/* Images */}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className={`grid ${selected.task_type === "spatial_fitting" ? "grid-cols-1" : "grid-cols-2"} gap-4`}>
                       <div>
-                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Before</p>
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">{selected.task_type === "spatial_fitting" ? "Scene" : "Before"}</p>
                         <div className="grid grid-cols-2 gap-1.5">
                           {(sc?.ground_truth?.before_images || []).slice(0, 4).map((img, i) => (
                             <img key={i} src={img} alt="" className="w-full rounded-lg border border-gray-100" />
@@ -182,6 +203,7 @@ export default function DatasetsPage() {
                           )}
                         </div>
                       </div>
+                      {selected.task_type !== "spatial_fitting" && (
                       <div>
                         <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">After (simulation)</p>
                         <div className="grid grid-cols-2 gap-1.5">
@@ -193,6 +215,7 @@ export default function DatasetsPage() {
                           )}
                         </div>
                       </div>
+                      )}
                     </div>
 
                     {/* Scene ID */}

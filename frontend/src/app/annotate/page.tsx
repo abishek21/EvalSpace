@@ -21,6 +21,7 @@ type Pair = {
   reasoning?: string;
   correct?: boolean;
   model_response?: string;
+  model_name?: string;
 };
 
 /* ── Simulation Video Player ── */
@@ -226,6 +227,10 @@ function AnnotateInner() {
   // Handle eval_result pairs from Stage 2
   const isEvalResult = pair.pair_type === "eval_result";
   const isCollision = pair.category === "collision_prediction";
+  const isFitting = pair.category === "spatial_fitting";
+  const displayModel = pair.model_name || (parse(pair.generation) as { model?: string } | null)?.model || "";
+  const envLabel = isFitting ? "🔲 Spatial Fitting" : isCollision ? "🎱 Collision" : "🏗️ Stacking";
+  const isPositiveGT = (gt: string) => gt === "stable" || gt === "fits" || gt === "hit";
 
   // Normalize: build a unified view for both old and eval_result formats
   const effectiveV = v || (isEvalResult ? {
@@ -256,7 +261,8 @@ function AnnotateInner() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
               </svg>
             </Link>
-            <span className="text-sm text-gray-500">🎱 {pair.scene_id || `Scenario ${idx + 1}`}</span>
+            <span className="text-sm text-gray-500">{pair.scene_id || `Scenario ${idx + 1}`}</span>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">{envLabel}</span>
             {isCorrect !== null && (
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                 isCorrect ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-rose-50 text-rose-700 border border-rose-200"
@@ -266,6 +272,9 @@ function AnnotateInner() {
             )}
             {pair.difficulty && (
               <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 capitalize">{pair.difficulty}</span>
+            )}
+            {displayModel && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-medium">🤖 {displayModel}</span>
             )}
           </div>
           {total > 0 && (
@@ -459,6 +468,7 @@ function AnnotateInner() {
               </svg>
             </Link>
             <span className="text-sm text-gray-500">{pair.scene_id || `Scenario ${idx + 1}`}</span>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">{envLabel}</span>
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
               isCorrect ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-rose-50 text-rose-700 border border-rose-200"
             }`}>
@@ -466,6 +476,9 @@ function AnnotateInner() {
             </span>
             {pair.difficulty && (
               <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 capitalize">{pair.difficulty}</span>
+            )}
+            {displayModel && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-medium">🤖 {displayModel}</span>
             )}
           </div>
           {/* Always show nav when total > 0 */}
@@ -489,9 +502,9 @@ function AnnotateInner() {
             <p className="text-sm text-gray-700">{pair.prompt}</p>
 
             {/* Before / After images */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className={`grid ${isFitting ? "grid-cols-1" : "grid-cols-2"} gap-4`}>
               <div>
-                <p className="text-xs text-gray-400 mb-2 uppercase tracking-wide">Before</p>
+                <p className="text-xs text-gray-400 mb-2 uppercase tracking-wide">{isFitting ? "Scene" : "Before"}</p>
                 <div className="grid grid-cols-2 gap-1.5">
                   {beforeImages.slice(0, 4).map((img: string, i: number) => (
                     <img key={i} src={img} alt="" className="w-full rounded-lg border border-gray-100" />
@@ -501,7 +514,7 @@ function AnnotateInner() {
                   )}
                 </div>
               </div>
-              <div>
+              {!isFitting && <div>
                 <p className="text-xs text-gray-400 mb-2 uppercase tracking-wide">After (3s sim)</p>
                 <div className="grid grid-cols-2 gap-1.5">
                   {afterImages.slice(0, 4).map((img: string, i: number) => (
@@ -511,17 +524,17 @@ function AnnotateInner() {
                     <div className="col-span-2 h-32 bg-gray-50 rounded-lg flex items-center justify-center text-xs text-gray-400">No after images</div>
                   )}
                 </div>
-              </div>
+              </div>}
             </div>
-
-            {/* GT vs VLM side by side */}
             <div className="grid grid-cols-2 gap-4">
               <div className={`rounded-xl p-4 border ${isCorrect ? "border-emerald-200 bg-emerald-50/30" : "border-gray-200"}`}>
                 <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">MuJoCo Ground Truth</p>
-                <p className={`text-sm font-medium ${effectiveV.mujoco_ground_truth === "stable" ? "text-emerald-700" : "text-rose-700"}`}>
-                  {effectiveV.mujoco_ground_truth.toUpperCase()}
+                <p className={`text-sm font-medium ${isPositiveGT(effectiveV.mujoco_ground_truth) ? "text-emerald-700" : "text-rose-700"}`}>
+                  {isFitting
+                    ? (effectiveV.mujoco_ground_truth === "fits" ? "✓ FITS" : "✗ DOES NOT FIT")
+                    : effectiveV.mujoco_ground_truth.toUpperCase()}
                 </p>
-                {gt?.objects && (
+                {!isFitting && gt?.objects && (
                   <div className="mt-2 flex flex-wrap gap-1">
                     {gt.objects.map((o: { color: string; label: string }, i: number) => (
                       <span key={i} className="text-xs bg-white border border-gray-200 px-1.5 py-0.5 rounded">{o.color} {o.label}</span>
@@ -531,8 +544,10 @@ function AnnotateInner() {
               </div>
               <div className={`rounded-xl p-4 border ${isCorrect ? "border-emerald-200 bg-emerald-50/30" : "border-rose-200 bg-rose-50/30"}`}>
                 <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">VLM Prediction</p>
-                <p className={`text-sm font-medium ${effectiveV.vlm_prediction === "stable" ? "text-emerald-700" : "text-rose-700"}`}>
-                  {effectiveV.vlm_prediction.toUpperCase()}
+                <p className={`text-sm font-medium ${isPositiveGT(effectiveV.vlm_prediction) ? "text-emerald-700" : "text-rose-700"}`}>
+                  {isFitting
+                    ? (effectiveV.vlm_prediction === "fits" ? "✓ FITS" : "✗ DOES NOT FIT")
+                    : effectiveV.vlm_prediction.toUpperCase()}
                 </p>
                 <p className="text-xs text-gray-500 mt-2 line-clamp-4">{effectiveV.vlm_reasoning}</p>
               </div>
@@ -548,10 +563,11 @@ function AnnotateInner() {
                   <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">VLM Full Reasoning</p>
                   <p className="text-sm text-gray-700 leading-relaxed">{effectiveV.vlm_reasoning}</p>
                 </div>
+                {!isFitting && gt?.objects && (
                 <div>
                   <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Stack Details</p>
                   <div className="space-y-1.5">
-                    {gt?.objects?.map((o: { color: string; label: string }, i: number) => (
+                    {gt.objects.map((o: { color: string; label: string }, i: number) => (
                       <div key={i} className="flex items-center gap-2 text-sm text-gray-600">
                         <span className="w-5 text-center text-xs text-gray-400">{i + 1}</span>
                         <span>{o.color} {o.label}</span>
@@ -559,6 +575,7 @@ function AnnotateInner() {
                     ))}
                   </div>
                 </div>
+                )}
                 <div className="mt-auto pt-4 border-t border-gray-200">
                   <p className="text-xs text-gray-400 mb-1">Difficulty</p>
                   <p className="text-sm text-gray-700 capitalize">{pair.difficulty || "—"}</p>
@@ -573,7 +590,9 @@ function AnnotateInner() {
                     className="flex-1 w-full rounded-xl border border-gray-200 p-3 text-sm resize-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400 outline-none bg-white"
                     placeholder={isCorrect
                       ? "VLM was correct — add notes if needed"
-                      : "Why is this stack " + effectiveV.mujoco_ground_truth + "? Your reasoning trains the model."
+                      : isFitting
+                        ? "Why does / doesn't the object fit? Your reasoning trains the model."
+                        : "Why is this stack " + effectiveV.mujoco_ground_truth + "? Your reasoning trains the model."
                     }
                     value={humanReasoning}
                     onChange={(e) => setHumanReasoning(e.target.value)}

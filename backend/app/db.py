@@ -1,18 +1,21 @@
 """
 Simple JSON file database.
-Collections: jobs, datasets, eval_runs, projects, pairs
+Collections: jobs, datasets, eval_runs, projects
+Pairs are stored in separate files per dataset/eval_run to avoid loading 800MB on every request.
 """
 import json
 from pathlib import Path
 from threading import Lock
 
 DB_PATH = Path(__file__).parent.parent / "data" / "db.json"
+PAIRS_DIR = Path(__file__).parent.parent / "data" / "pairs"
 _lock = Lock()
 
-COLLECTIONS = ["projects", "pairs", "jobs", "datasets", "eval_runs"]
+COLLECTIONS = ["projects", "jobs", "datasets", "eval_runs"]
 
 
 def _read() -> dict:
+    """Read the main db.json (small — no pairs)."""
     if not DB_PATH.exists():
         return {c: [] for c in COLLECTIONS}
     with open(DB_PATH) as f:
@@ -22,8 +25,29 @@ def _read() -> dict:
 
 def _write(data: dict):
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Never write pairs to main db
+    clean = {c: data.get(c, []) for c in COLLECTIONS}
     with open(DB_PATH, "w") as f:
-        json.dump(data, f, indent=2)
+        json.dump(clean, f, indent=2)
+
+
+def _pairs_path(owner_id: str) -> Path:
+    """Get path for a pairs file: data/pairs/{owner_id}.json"""
+    return PAIRS_DIR / f"{owner_id}.json"
+
+
+def _read_pairs(owner_id: str) -> list[dict]:
+    p = _pairs_path(owner_id)
+    if not p.exists():
+        return []
+    with open(p) as f:
+        return json.load(f)
+
+
+def _write_pairs(owner_id: str, pairs: list[dict]):
+    PAIRS_DIR.mkdir(parents=True, exist_ok=True)
+    with open(_pairs_path(owner_id), "w") as f:
+        json.dump(pairs, f)
 
 
 # --- Generic helpers ---
@@ -112,17 +136,21 @@ def update_dataset(dataset_id, updates):
 
 def delete_dataset(dataset_id):
     _delete("datasets", dataset_id)
+    p = _pairs_path(dataset_id)
+    if p.exists():
+        p.unlink()
 
 def get_dataset_scenarios(dataset_id):
-    data = _read()
-    return [p for p in data.get("pairs", [])
-            if p.get("dataset_id") == dataset_id and p.get("pair_type") == "ground_truth"]
+    return _read_pairs(dataset_id)
 
 def add_scenarios(scenarios):
+    if not scenarios:
+        return
+    dataset_id = scenarios[0].get("dataset_id", "unknown")
     with _lock:
-        data = _read()
-        data["pairs"].extend(scenarios)
-        _write(data)
+        existing = _read_pairs(dataset_id)
+        existing.extend(scenarios)
+        _write_pairs(dataset_id, existing)
 
 
 # --- Eval Runs ---
@@ -143,17 +171,21 @@ def update_eval_run(run_id, updates):
 
 def delete_eval_run(run_id):
     _delete("eval_runs", run_id)
+    p = _pairs_path(run_id)
+    if p.exists():
+        p.unlink()
 
 def get_eval_results(run_id):
-    data = _read()
-    return [p for p in data.get("pairs", [])
-            if p.get("eval_run_id") == run_id and p.get("pair_type") == "eval_result"]
+    return _read_pairs(run_id)
 
 def add_eval_results(results):
+    if not results:
+        return
+    run_id = results[0].get("eval_run_id", "unknown")
     with _lock:
-        data = _read()
-        data["pairs"].extend(results)
-        _write(data)
+        existing = _read_pairs(run_id)
+        existing.extend(results)
+        _write_pairs(run_id, existing)
 
 
 # --- Projects (legacy + RLHF preference data) ---
@@ -174,19 +206,22 @@ def delete_project(project_id):
     _delete("projects", project_id)
 
 
-# --- Pairs (generic) ---
+# --- Pairs (generic / legacy) ---
 
 def get_pairs(project_id, status=None):
-    items = _get_all("pairs", project_id=project_id)
+    items = _read_pairs(project_id)
     if status:
         items = [p for p in items if p.get("status") == status]
     return items
 
 def add_pairs(pairs):
+    if not pairs:
+        return
+    project_id = pairs[0].get("projectId", "unknown")
     with _lock:
-        data = _read()
-        data["pairs"].extend(pairs)
-        _write(data)
+        existing = _read_pairs(project_id)
+        existing.extend(pairs)
+        _write_pairs(project_id, existing)
 
 save_pairs = add_pairs  # alias for rlhf_generator
 

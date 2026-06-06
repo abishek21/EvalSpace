@@ -216,7 +216,13 @@ async def get_next_pair(projectId: str, review: str = "false", index: int = 0, t
     if review == "true" or type == "eval":
         if not pairs or index >= len(pairs):
             return {"done": True, "pair": None, "total": len(pairs), "index": index}
-        return {"done": False, "pair": pairs[index], "total": len(pairs), "index": index}
+        pair_data = pairs[index]
+        # Inject model name from eval run if available
+        if type == "eval" and pair_data.get("eval_run_id"):
+            run = db.get_eval_run(pair_data["eval_run_id"])
+            if run and run.get("model"):
+                pair_data = {**pair_data, "model_name": run["model"]}
+        return {"done": False, "pair": pair_data, "total": len(pairs), "index": index}
 
     if not pairs:
         return {"done": True, "pair": None}

@@ -4,27 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-const OBJECTS = [
-  { id: "large_box", label: "Large Box", icon: "📦" },
-  { id: "small_box", label: "Small Box", icon: "📦" },
-  { id: "wide_box", label: "Wide Box", icon: "📦" },
-  { id: "tiny_box", label: "Tiny Box", icon: "📦" },
-  { id: "book", label: "Book", icon: "📕" },
-  { id: "flat_plate", label: "Flat Plate", icon: "🍽️" },
-  { id: "tall_cylinder", label: "Cylinder", icon: "🧪" },
-  { id: "sphere", label: "Ball", icon: "⚽" },
-  { id: "small_sphere", label: "Small Ball", icon: "🔵" },
-  { id: "bowl", label: "Bowl", icon: "🥣" },
-];
-
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3;
 
 export default function GeneratePage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>(1);
-  const [environment, setEnvironment] = useState<"stacking_stability" | "collision_prediction">("stacking_stability");
-  const [selectedObjects, setSelectedObjects] = useState<string[]>(OBJECTS.map((o) => o.id));
-  const [numViews, setNumViews] = useState(4);
+  const [environment, setEnvironment] = useState<"stacking_stability" | "collision_prediction" | "spatial_fitting">("stacking_stability");
   const [numStable, setNumStable] = useState(5);
   const [numUnstable, setNumUnstable] = useState(5);
   const [mode, setMode] = useState<"curated" | "random">("random");
@@ -35,26 +20,24 @@ export default function GeneratePage() {
   const [azureKey, setAzureKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  function toggleObject(id: string) {
-    setSelectedObjects((prev) =>
-      prev.includes(id) ? prev.filter((o) => o !== id) : [...prev, id]
-    );
-  }
-
   async function handleCreate() {
     setSubmitting(true);
+    const datasetMap: Record<string, string> = {
+      stacking_stability: "mujoco:stacking",
+      collision_prediction: "mujoco:collision",
+      spatial_fitting: "mujoco:fitting",
+    };
     const body = {
-      dataset: environment === "collision_prediction" ? "mujoco:collision" : "mujoco:stacking",
+      dataset: datasetMap[environment] || "mujoco:stacking",
       job_type: "generate_gt",
       environment,
       split: "train",
       numScenes: mode === "curated" ? 10 : numStable + numUnstable,
       questionsPerScene: 1,
-      maxViews: numViews,
       imageResolution: 480,
-      categories: ["stacking_stability"],
+      categories: [environment],
       model: answerModel,
-      name: datasetName || `stacking-${Date.now()}`,
+      name: datasetName || `${environment}-${Date.now()}`,
       useCurated: mode === "curated",
       ...(mode === "random" ? { numStable, numUnstable } : {}),
       ...((questionSource === "azure" || answerModel === "gpt-4o") && azureKey ? {
@@ -108,9 +91,8 @@ export default function GeneratePage() {
         <div className="flex items-center gap-0 mb-10">
           {[
             { n: 1, label: "Environment" },
-            { n: 2, label: "Objects" },
-            { n: 3, label: "Settings" },
-            { n: 4, label: "Create" },
+            { n: 2, label: "Settings" },
+            { n: 3, label: "Create" },
           ].map((s, i) => (
             <div key={s.n} className="flex items-center flex-1">
               <button
@@ -186,6 +168,28 @@ export default function GeneratePage() {
                 </div>
               </button>
 
+              <button
+                onClick={() => { setEnvironment("spatial_fitting"); setStep(2); }}
+                className={`w-full text-left p-5 rounded-xl border-2 transition hover:shadow-sm ${
+                  environment === "spatial_fitting" ? "border-sky-200 bg-sky-50/50" : "border-gray-100 hover:border-gray-200"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🔲</span>
+                      <p className="font-medium text-gray-900">Spatial Fitting</p>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-0.5 ml-7">
+                      Can object A fit through gap B? Tests spatial size estimation — questions use only color and shape, no size hints.
+                    </p>
+                  </div>
+                  <svg className="w-5 h-5 text-sky-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                  </svg>
+                </div>
+              </button>
+
               <div className="w-full text-left p-5 rounded-xl border border-gray-100 opacity-40">
                 <div className="flex items-center gap-2">
                   <span className="text-lg">🌉</span>
@@ -197,63 +201,8 @@ export default function GeneratePage() {
           </div>
         )}
 
-        {/* Step 2: Objects */}
+        {/* Step 2: Settings */}
         {step === 2 && (
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-1">Select objects</h2>
-            <p className="text-sm text-gray-500 mb-6">Choose which objects can appear in stacking scenarios</p>
-
-            <div className="grid grid-cols-5 gap-3 mb-6">
-              {OBJECTS.map((obj) => {
-                const selected = selectedObjects.includes(obj.id);
-                return (
-                  <button
-                    key={obj.id}
-                    onClick={() => toggleObject(obj.id)}
-                    className={`p-3 rounded-xl border-2 text-center transition ${
-                      selected
-                        ? "border-sky-300 bg-sky-50"
-                        : "border-gray-100 hover:border-gray-200"
-                    }`}
-                  >
-                    <span className="text-xl block mb-1">{obj.icon}</span>
-                    <span className={`text-xs ${selected ? "text-gray-900" : "text-gray-400"}`}>
-                      {obj.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="flex items-center justify-between text-sm text-gray-500 mb-8">
-              <span>{selectedObjects.length} of {OBJECTS.length} selected</span>
-              <button
-                onClick={() => setSelectedObjects(
-                  selectedObjects.length === OBJECTS.length ? [] : OBJECTS.map((o) => o.id)
-                )}
-                className="text-sky-600 hover:text-sky-700"
-              >
-                {selectedObjects.length === OBJECTS.length ? "Deselect all" : "Select all"}
-              </button>
-            </div>
-
-            <div className="flex gap-3">
-              <button onClick={() => setStep(1)} className="px-5 py-2.5 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-50">
-                Back
-              </button>
-              <button
-                onClick={() => setStep(3)}
-                disabled={selectedObjects.length < 2}
-                className="px-5 py-2.5 rounded-lg bg-sky-500 text-white text-sm hover:bg-sky-600 disabled:opacity-40 transition"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Settings */}
-        {step === 3 && (
           <div>
             <h2 className="text-xl font-semibold text-gray-900 mb-1">Configure generation</h2>
             <p className="text-sm text-gray-500 mb-6">Set the number of scenarios and camera views</p>
@@ -289,7 +238,7 @@ export default function GeneratePage() {
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {environment === "collision_prediction" ? "Hit scenarios" : "Stable scenarios"}
+                      {environment === "collision_prediction" ? "Hit scenarios" : environment === "spatial_fitting" ? "Fits scenarios" : "Stable scenarios"}
                     </label>
                     <div className="flex items-center gap-3">
                       <input
@@ -302,7 +251,7 @@ export default function GeneratePage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {environment === "collision_prediction" ? "Miss scenarios" : "Unstable scenarios"}
+                      {environment === "collision_prediction" ? "Miss scenarios" : environment === "spatial_fitting" ? "Doesn't fit scenarios" : "Unstable scenarios"}
                     </label>
                     <div className="flex items-center gap-3">
                       <input
@@ -315,19 +264,6 @@ export default function GeneratePage() {
                   </div>
                 </div>
               )}
-
-              {/* Views */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Camera views per scenario</label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="range" min={1} max={6} value={numViews}
-                    onChange={(e) => setNumViews(Number(e.target.value))}
-                    className="flex-1 accent-sky-500"
-                  />
-                  <span className="w-8 text-center text-sm font-medium text-gray-900">{numViews}</span>
-                </div>
-              </div>
 
               {/* Question Generation */}
               <div>
@@ -394,14 +330,10 @@ export default function GeneratePage() {
 
             {/* Summary */}
             <div className="rounded-xl border border-gray-100 p-5 mb-8">
-              <div className="grid grid-cols-3 gap-4 text-center">
+              <div className="grid grid-cols-2 gap-4 text-center">
                 <div>
                   <p className="text-2xl font-semibold text-gray-900">{total}</p>
                   <p className="text-xs text-gray-500">scenarios</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-semibold text-gray-900">{numViews}</p>
-                  <p className="text-xs text-gray-500">views each</p>
                 </div>
                 <div>
                   <p className="text-2xl font-semibold text-gray-900">~{Math.ceil(total * 0.5)}m</p>
@@ -411,11 +343,11 @@ export default function GeneratePage() {
             </div>
 
             <div className="flex gap-3">
-              <button onClick={() => setStep(2)} className="px-5 py-2.5 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-50">
+              <button onClick={() => setStep(1)} className="px-5 py-2.5 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-50">
                 Back
               </button>
               <button
-                onClick={() => setStep(4)}
+                onClick={() => setStep(3)}
                 className="px-5 py-2.5 rounded-lg bg-sky-500 text-white text-sm hover:bg-sky-600 transition"
               >
                 Continue
@@ -424,8 +356,8 @@ export default function GeneratePage() {
           </div>
         )}
 
-        {/* Step 4: Name & Create */}
-        {step === 4 && (
+        {/* Step 3: Name & Create */}
+        {step === 3 && (
           <div>
             <h2 className="text-xl font-semibold text-gray-900 mb-1">Name your dataset</h2>
             <p className="text-sm text-gray-500 mb-6">Give this evaluation dataset a name for easy reference</p>
@@ -445,19 +377,11 @@ export default function GeneratePage() {
             <div className="rounded-xl bg-gray-50 p-5 mb-8 text-sm text-gray-600 space-y-2">
               <div className="flex justify-between">
                 <span>Environment</span>
-                <span className="text-gray-900">{environment === "collision_prediction" ? "Collision Prediction" : "Stacking Stability"}</span>
+                <span className="text-gray-900">{environment === "collision_prediction" ? "Collision Prediction" : environment === "spatial_fitting" ? "Spatial Fitting" : "Stacking Stability"}</span>
               </div>
               <div className="flex justify-between">
                 <span>Mode</span>
-                <span className="text-gray-900">{mode === "curated" ? "Curated (10)" : `Random (${numStable} ${environment === "collision_prediction" ? "hit" : "stable"}, ${numUnstable} ${environment === "collision_prediction" ? "miss" : "unstable"})`}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Objects</span>
-                <span className="text-gray-900">{selectedObjects.length} types</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Views</span>
-                <span className="text-gray-900">{numViews} per scenario</span>
+                <span className="text-gray-900">{mode === "curated" ? "Curated (10)" : `Random (${numStable} ${environment === "collision_prediction" ? "hit" : environment === "spatial_fitting" ? "fits" : "stable"}, ${numUnstable} ${environment === "collision_prediction" ? "miss" : environment === "spatial_fitting" ? "no-fit" : "unstable"})`}</span>
               </div>
               <div className="flex justify-between">
                 <span>Questions</span>
@@ -470,7 +394,7 @@ export default function GeneratePage() {
             </div>
 
             <div className="flex gap-3">
-              <button onClick={() => setStep(3)} className="px-5 py-2.5 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-50">
+              <button onClick={() => setStep(2)} className="px-5 py-2.5 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-50">
                 Back
               </button>
               <button

@@ -32,6 +32,15 @@ from app.dise_collision import (
     COLORS as COLLISION_COLORS,
     _random_scenario as _random_collision_scenario,
 )
+from app.dise_fitting import (
+    FittingScenario,
+    render_scenario as render_fitting_scenario,
+    generate_10_scenarios as fitting_curated_10,
+    _can_fit,
+    FITTING_OBJECTS,
+    GAP_TYPES,
+    COLORS as FITTING_COLORS,
+)
 
 
 # ─── Random scenario generator ──────────────────────────────────────
@@ -181,8 +190,232 @@ async def process_gt_job(job_id: str, config: dict):
 
     if environment == "collision_prediction":
         await _process_collision_gt(job_id, config)
+    elif environment == "spatial_fitting":
+        await _process_fitting_gt(job_id, config)
     else:
         await _process_stacking_gt(job_id, config)
+
+
+# ─── Spatial Fitting GT ──────────────────────────────────────────────
+
+def _random_fitting_scenario(idx: int) -> FittingScenario:
+    """Generate a random spatial fitting scenario."""
+    obj_keys = list(FITTING_OBJECTS.keys())
+    gap_keys = list(GAP_TYPES.keys())
+    color_names = list(FITTING_COLORS.keys())
+
+    obj_key = random.choice(obj_keys)
+    gap_key = random.choice(gap_keys)
+    color = random.choice(color_names)
+    fits, reasoning = _can_fit(obj_key, gap_key)
+    obj = FITTING_OBJECTS[obj_key]
+    gap = GAP_TYPES[gap_key]
+
+    question = f"Can the {color} {obj['vlm_shape']} fit through the {gap['vlm_label']} in the wall?"
+
+    return FittingScenario(
+        name=f"scenario_{idx}",
+        object_type=obj_key,
+        object_color=color,
+        gap_type=gap_key,
+        fits=fits,
+        best_orientation=reasoning,
+        question=question,
+        difficulty="medium",
+        reasoning=reasoning,
+    )
+
+
+FITTING_QUESTION_GEN_PROMPT = """You are generating spatial reasoning questions for a VLM evaluation dataset.
+
+An object is placed next to a wall with an opening. The question is whether the object can fit through.
+
+CRITICAL RULES:
+- NEVER mention sizes, dimensions, measurements, or numbers
+- NEVER use words like "large", "small", "tiny", "wide", "narrow", "big"
+- ONLY refer to the object by its COLOR and SHAPE (e.g. "the red ball", "the blue cube")
+- ONLY refer to the opening by its SHAPE (e.g. "the circular opening", "the rectangular slot")
+- The VLM must judge sizes purely from the image
+
+Object: {color} {shape}
+Opening: {gap_shape}
+
+Generate a clear, natural question asking whether the object can pass through the opening.
+Vary your phrasing. Respond with ONLY the question."""
+
+
+async def _generate_fitting_question(color: str, shape: str, gap_shape: str,
+                                      endpoint: str, api_key: str) -> str | None:
+    try:
+        from openai import OpenAI
+        client = OpenAI(base_url=endpoint, api_key=api_key)
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": FITTING_QUESTION_GEN_PROMPT.format(
+                color=color, shape=shape, gap_shape=gap_shape
+            )}],
+            max_tokens=100,
+            temperature=0.8,
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"  ⚠ Azure fitting question gen failed: {e}")
+        return None
+
+
+async def _process_fitting_gt(job_id: str, config: dict):
+    """Generate spatial fitting ground truth dataset."""
+    try:
+        num_scenarios = config.get("num_scenes", 10)
+        use_curated = config.get("use_curated", False)
+        target_fits = config.get("num_stable", None)      # reuse: stable=fits
+        target_nofits = config.get("num_unstable", None)   # unstable=doesn't fit
+
+        db.update_job(job_id, {
+            "status": "generating",
+            "started_at": datetime.now().isoformat(),
+        })
+
+        # Generate scenarios
+        if use_curated:
+            scenarios = fitting_curated_10()[:num_scenarios]
+        elif target_fits is not None and target_nofits is not None:
+            scenarios = []
+            fits_count = 0
+            nofits_count = 0
+            attempts = 0
+            max_attempts = num_scenarios * 8
+            print(f"  Targeting {target_fits} fits + {target_nofits} doesn't fit")
+            while (fits_count < target_fits or nofits_count < target_nofits) and attempts < max_attempts:
+                candidate = _random_fitting_scenario(attempts)
+                if candidate.fits and fits_count < target_fits:
+                    scenarios.append(candidate)
+                    fits_count += 1
+                    print(f"  Found FITS #{fits_count} (attempt {attempts+1})")
+                elif not candidate.fits and nofits_count < target_nofits:
+                    scenarios.append(candidate)
+                    nofits_count += 1
+                    print(f"  Found NO FIT #{nofits_count} (attempt {attempts+1})")
+                attempts += 1
+            num_scenarios = len(scenarios)
+            print(f"  Generated {num_scenarios} scenarios in {attempts} attempts")
+        else:
+            scenarios = [_random_fitting_scenario(i) for i in range(num_scenarios)]
+
+        # Azure question generation
+        q_model = config.get("question_model")
+        if q_model:
+            q_model["api_key"] = q_model.get("api_key") or q_model.get("apiKey", "")
+        use_azure_questions = q_model and q_model.get("provider") == "azure-openai" and q_model.get("api_key")
+
+        dataset_id = str(uuid4())
+        all_scenarios = []
+        fits_total = 0
+        nofits_total = 0
+
+        for idx, scenario in enumerate(scenarios):
+            obj = FITTING_OBJECTS[scenario.object_type]
+            gap = GAP_TYPES[scenario.gap_type]
+            print(f"\n[{idx+1}/{num_scenarios}] {scenario.name}")
+            print(f"  {scenario.object_color} {obj['label']} → {gap['label']}")
+
+            # Render the scene
+            print(f"  Rendering...")
+            result = render_fitting_scenario(scenario)
+            gt = "fits" if scenario.fits else "no_fit"
+            if scenario.fits:
+                fits_total += 1
+            else:
+                nofits_total += 1
+            print(f"  Ground truth: {gt.upper()} — {scenario.reasoning}")
+
+            db.update_job_progress(job_id, {
+                "scenes_processed": idx + 1,
+                "scenarios_total": num_scenarios,
+            })
+
+            question = scenario.question
+            if use_azure_questions:
+                print(f"  Generating question via Azure OpenAI...")
+                azure_q = await _generate_fitting_question(
+                    scenario.object_color, obj['vlm_shape'], gap['vlm_label'],
+                    q_model["endpoint"], q_model["api_key"]
+                )
+                if azure_q:
+                    question = azure_q
+                    print(f"  Question: {azure_q[:80]}...")
+
+            scenario_record = {
+                "id": str(uuid4()),
+                "dataset_id": dataset_id,
+                "pair_type": "ground_truth",
+                "scene_id": scenario.name,
+                "prompt": question,
+                "category": "spatial_fitting",
+                "difficulty": scenario.difficulty,
+                "ground_truth": {
+                    "answer": gt,
+                    "fits": scenario.fits,
+                    "reasoning": scenario.reasoning,
+                    "object": {
+                        "type": scenario.object_type,
+                        "color": scenario.object_color,
+                        "label": obj["label"],
+                        "vlm_shape": obj["vlm_shape"],
+                    },
+                    "gap": {
+                        "type": scenario.gap_type,
+                        "label": gap["label"],
+                        "vlm_label": gap["vlm_label"],
+                    },
+                    "before_images": result.images,
+                },
+                "source": {
+                    "dataset": "mujoco:fitting",
+                    "scene_id": scenario.name,
+                    "images": result.images,
+                },
+                "status": "ready",
+            }
+            all_scenarios.append(scenario_record)
+
+            db.update_job_progress(job_id, {
+                "scenes_processed": idx + 1,
+                "pairs_generated": len(all_scenarios),
+            })
+
+        dataset_name = config.get("name") or f"Fitting {num_scenarios} scenarios"
+        db.create_dataset({
+            "id": dataset_id,
+            "name": dataset_name,
+            "task_type": "spatial_fitting",
+            "scenario_count": num_scenarios,
+            "stable_count": fits_total,       # reuse: fits
+            "unstable_count": nofits_total,   # doesn't fit
+            "created_at": datetime.now().isoformat(),
+            "job_id": job_id,
+            "config": {
+                "environment": "spatial_fitting",
+                "mode": "curated" if use_curated else "random",
+                "question_source": "azure-openai" if use_azure_questions else "template",
+            },
+        })
+        db.add_scenarios(all_scenarios)
+
+        db.update_job(job_id, {
+            "status": "completed",
+            "dataset_id": dataset_id,
+            "completed_at": datetime.now().isoformat(),
+        })
+
+        print(f"\n{'='*55}")
+        print(f"✅ Fitting dataset {dataset_id[:8]} created")
+        print(f"   {num_scenarios} scenarios ({fits_total} fits, {nofits_total} no-fit)")
+
+    except Exception as e:
+        db.update_job(job_id, {"status": "failed", "error": str(e)})
+        print(f"❌ Fitting GT job {job_id[:8]} failed: {e}")
+        raise
 
 
 # ─── Collision Prediction GT ────────────────────────────────────────
