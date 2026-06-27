@@ -25,6 +25,11 @@ const ENV_BADGE: Record<string, { icon: string; label: string }> = {
   stacking_stability: { icon: "🏗️", label: "Stacking" },
   collision_prediction: { icon: "🎱", label: "Collision" },
   spatial_fitting: { icon: "🔲", label: "Spatial Fitting" },
+  shelf_fitting: { icon: "🗄️", label: "Shelf Fitting" },
+  door_passage: { icon: "🚪", label: "Door Passage" },
+  ui_visual: { icon: "🖥️", label: "UI Visual" },
+  perspective_taking: { icon: "📷", label: "Perspective Taking" },
+  allocentric: { icon: "🧭", label: "Allocentric" },
 };
 
 function EvaluateContent() {
@@ -42,11 +47,52 @@ function EvaluateContent() {
   const [progress, setProgress] = useState<any>(null);
   const [selectedRun, setSelectedRun] = useState<EvalRun | null>(null);
   const [tab, setTab] = useState<"new" | "history">("new");
+  const [promptTemplate, setPromptTemplate] = useState({ system: "", user: "" });
+  const [customPromptSuffix, setCustomPromptSuffix] = useState("");
 
   useEffect(() => {
     fetch("/api/datasets").then(r => r.json()).then(setDatasets).catch(() => {});
     fetch("/api/eval-runs").then(r => r.json()).then(d => { setEvalRuns(d); if (d.length > 0) setTab("history"); }).catch(() => {});
   }, []);
+
+  // Fetch prompt template when dataset changes
+  useEffect(() => {
+    if (!selectedDataset) { setPromptTemplate({ system: "", user: "" }); return; }
+    fetch(`/api/datasets/${selectedDataset}`).then(r => r.json()).then(ds => {
+      const tt = ds.task_type || "stacking_stability";
+      const templates: Record<string, { system: string; user: string }> = {
+        stacking_stability: {
+          system: "You are a physics reasoning assistant. Analyze images of stacked objects and predict stability.",
+          user: "Look at these images of objects stacked on a table.\n\n{scenario question}\n\nAnswer with PREDICTION: STABLE or UNSTABLE, then REASONING.",
+        },
+        collision_prediction: {
+          system: "You are a physics reasoning assistant. Predict whether a pushed object will collide with a target.",
+          user: "Look at these images of objects on a table.\n\n{scenario question}\n\nAnswer with PREDICTION: HIT or MISS, then REASONING.",
+        },
+        spatial_fitting: {
+          system: "You are a spatial reasoning assistant. Determine whether the object could fit through the opening.",
+          user: "{scenario question}\n\nAnswer with PREDICTION: FITS or DOES NOT FIT, then REASONING.",
+        },
+        shelf_fitting: {
+          system: "You are a spatial reasoning assistant. Determine whether the object could fit through the opening.",
+          user: "{scenario question}\n\nAnswer with PREDICTION: FITS or DOES NOT FIT, then REASONING.",
+        },
+        door_passage: {
+          system: "You are a spatial reasoning assistant. Determine whether the furniture fits through the doorway.",
+          user: "{scenario question}\n\nAnswer with PREDICTION: FITS or DOES NOT FIT, then REASONING.",
+        },
+        perspective_taking: {
+          system: "You are a spatial reasoning expert. Look at the image carefully and answer the question.\n\nAnswer with EXACTLY this format:\nPREDICTION: <object name or left/right>\nREASONING: <your reasoning in 1-2 sentences>",
+          user: "{scenario question}",
+        },
+        allocentric: {
+          system: "You are a spatial reasoning expert. Look at the image carefully and answer the question.\n\nAnswer with EXACTLY this format:\nPREDICTION: <object name or left/right>\nREASONING: <your reasoning in 1-2 sentences>",
+          user: "{scenario question}",
+        },
+      };
+      setPromptTemplate(templates[tt] || templates.stacking_stability);
+    }).catch(() => {});
+  }, [selectedDataset]);
 
   useEffect(() => {
     if (!jobId || !running) return;
@@ -72,7 +118,8 @@ function EvaluateContent() {
       name: "Eval " + model, dataset: "mujoco:stacking", job_type: "evaluate",
       dataset_id: selectedDataset, model, num_stable: 0, num_unstable: 0,
     };
-    if (model === "gpt-4o") config.azure_config = { endpoint: azureEndpoint, api_key: azureKey };
+    const isLocalGpu = model.startsWith("qwen") && !model.includes("/");
+    if (!isLocalGpu) config.azure_config = { endpoint: azureEndpoint, api_key: azureKey };
     const res = await fetch("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) });
     const job = await res.json();
     setJobId(job.id);
@@ -138,16 +185,32 @@ function EvaluateContent() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Model</label>
-                  <select value={model} onChange={e => setModel(e.target.value)}
+                  <select value={model} onChange={e => {
+                    setModel(e.target.value);
+                    const isOpenRouter = e.target.value.includes("/") || e.target.value.startsWith("grok");
+                    if (isOpenRouter) setAzureEndpoint("https://openrouter.ai/api/v1");
+                    else if (!azureEndpoint.includes("openrouter")) setAzureEndpoint("https://akaudiobot.services.ai.azure.com/openai/v1");
+                  }}
                     className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
                     <option value="gpt-4o">GPT-4o (Azure OpenAI)</option>
+                    <option value="gpt-4.1">GPT-4.1 (Azure OpenAI)</option>
+                    <option value="gpt-5">GPT-5 (Azure OpenAI)</option>
+                    <option value="Phi-4">Phi-4 (Azure AI)</option>
+                    <option value="x-ai/grok-4.3">Grok 4.3 (OpenRouter)</option>
+                    <option value="anthropic/claude-opus-4.8">Claude Opus 4.8 (OpenRouter)</option>
+                    <option value="anthropic/claude-sonnet-4">Claude Sonnet 4 (OpenRouter)</option>
+                    <option value="google/gemini-2.5-pro">Gemini 2.5 Pro (OpenRouter)</option>
+                    <option value="google/gemini-3.5-flash">Gemini 3.5 Flash (OpenRouter)</option>
+                    <option value="openai/gpt-5.5">GPT-5.5 (OpenRouter)</option>
+                    <option value="deepseek/deepseek-v4-pro">DeepSeek V4 Pro (OpenRouter)</option>
+                    <option value="qwen/qwen-2.5-vl-72b-instruct">Qwen 2.5 VL 72B (OpenRouter)</option>
+                    <option value="qwen/qwen-2.5-vl-7b-instruct">Qwen 2.5 VL 7B (OpenRouter)</option>
                     <option value="qwen2.5-vl-3b">Qwen 2.5-VL 3B (GPU)</option>
-                    <option value="qwen2.5-vl-7b" disabled>Qwen 2.5-VL 7B (coming soon)</option>
                   </select>
                 </div>
               </div>
 
-              {model === "gpt-4o" && (
+              {!(model.startsWith("qwen") && !model.includes("/")) && (
                 <div className="grid grid-cols-2 gap-6 mb-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Azure Endpoint</label>
@@ -162,7 +225,32 @@ function EvaluateContent() {
                 </div>
               )}
 
-              <button onClick={startEval} disabled={running || !selectedDataset || (model === "gpt-4o" && !azureKey)}
+              {/* Prompt Template Preview */}
+              {selectedDataset && promptTemplate.system && (
+                <div className="mb-6 rounded-lg border border-gray-100 bg-gray-50 p-4">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">📋 Prompt Template</p>
+                  <div className="mb-3">
+                    <p className="text-xs font-medium text-gray-600 mb-1">System Prompt</p>
+                    <pre className="text-xs bg-white border border-gray-200 rounded-md p-2.5 whitespace-pre-wrap text-gray-700">{promptTemplate.system}</pre>
+                  </div>
+                  <div className="mb-3">
+                    <p className="text-xs font-medium text-gray-600 mb-1">User Prompt</p>
+                    <pre className="text-xs bg-white border border-gray-200 rounded-md p-2.5 whitespace-pre-wrap text-gray-700">{promptTemplate.user}</pre>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-600 mb-1">Custom Suffix <span className="text-gray-400">(optional — appended to user prompt)</span></p>
+                    <textarea
+                      value={customPromptSuffix}
+                      onChange={e => setCustomPromptSuffix(e.target.value)}
+                      placeholder="e.g., Think step by step before answering."
+                      className="w-full rounded-md border border-gray-200 px-2.5 py-2 text-xs font-mono resize-y min-h-[40px]"
+                      rows={2}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <button onClick={startEval} disabled={running || !selectedDataset || (!(model.startsWith("qwen") && !model.includes("/")) && !azureKey.trim())}
                 className={`px-6 py-2.5 rounded-lg text-white text-sm font-medium transition-all ${running ? "bg-violet-400 cursor-wait" : "bg-violet-500 hover:bg-violet-600 active:scale-95"} disabled:opacity-50`}>
                 {running ? (
                   <span className="flex items-center gap-2">

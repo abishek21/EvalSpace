@@ -107,8 +107,10 @@ async def run_job(job_id: str, background_tasks: BackgroundTasks):
     config = job["config"]
     answer_model = config.get("model", "")
     job_type = config.get("job_type", "")
+    has_azure = bool((config.get("azure_config") or {}).get("api_key"))
     needs_gpu = (
-        answer_model not in ("gpt-4o", "none", "")
+        answer_model not in ("none", "")
+        and not has_azure
         and job_type not in ("generate_gt", "rlhf")
     )
     if needs_gpu:

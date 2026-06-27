@@ -15,6 +15,10 @@ type Scenario = {
     before_images: string[];
     after_images: string[];
   };
+  source?: {
+    images?: string[];
+    [key: string]: unknown;
+  };
 };
 
 type Dataset = {
@@ -30,6 +34,11 @@ const ENV_BADGE: Record<string, { icon: string; label: string }> = {
   stacking_stability: { icon: "🏗️", label: "Stacking" },
   collision_prediction: { icon: "🎱", label: "Collision" },
   spatial_fitting: { icon: "🔲", label: "Spatial Fitting" },
+  shelf_fitting: { icon: "🗄️", label: "Shelf Fitting" },
+  door_passage: { icon: "🚪", label: "Door Passage" },
+  ui_visual: { icon: "🖥️", label: "UI Visual" },
+  perspective_taking: { icon: "📷", label: "Perspective Taking" },
+  allocentric: { icon: "🧭", label: "Allocentric" },
 };
 
 export default function DatasetsPage() {
@@ -177,7 +186,7 @@ export default function DatasetsPage() {
                     </div>
 
                     {/* Objects */}
-                    {selected.task_type !== "spatial_fitting" && sc?.ground_truth?.objects && (
+                    {selected.task_type !== "spatial_fitting" && Array.isArray(sc?.ground_truth?.objects) && (
                       <div>
                         <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Stack (bottom → top)</p>
                         <div className="flex flex-wrap gap-1.5">
@@ -191,19 +200,19 @@ export default function DatasetsPage() {
                     )}
 
                     {/* Images */}
-                    <div className={`grid ${selected.task_type === "spatial_fitting" ? "grid-cols-1" : "grid-cols-2"} gap-4`}>
+                    <div className={`grid ${selected.task_type === "spatial_fitting" || selected.task_type === "shelf_fitting" || selected.task_type === "door_passage" || selected.task_type === "perspective_taking" || selected.task_type === "allocentric" ? "grid-cols-1" : "grid-cols-2"} gap-4`}>
                       <div>
-                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">{selected.task_type === "spatial_fitting" ? "Scene" : "Before"}</p>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {(sc?.ground_truth?.before_images || []).slice(0, 4).map((img, i) => (
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">{selected.task_type === "spatial_fitting" || selected.task_type === "shelf_fitting" || selected.task_type === "door_passage" || selected.task_type === "perspective_taking" || selected.task_type === "allocentric" ? "Scene" : "Before"}</p>
+                        <div className={`grid ${selected.task_type === "shelf_fitting" || selected.task_type === "door_passage" || selected.task_type === "perspective_taking" || selected.task_type === "allocentric" ? "grid-cols-1" : "grid-cols-2"} gap-1.5`}>
+                          {(sc?.ground_truth?.before_images || sc?.source?.images || []).slice(0, 4).map((img, i) => (
                             <img key={i} src={img} alt="" className="w-full rounded-lg border border-gray-100" />
                           ))}
-                          {(!sc?.ground_truth?.before_images || sc.ground_truth.before_images.length === 0) && (
+                          {(!sc?.ground_truth?.before_images && !sc?.source?.images) && (
                             <div className="col-span-2 h-28 bg-gray-50 rounded-lg flex items-center justify-center text-xs text-gray-400">No images</div>
                           )}
                         </div>
                       </div>
-                      {selected.task_type !== "spatial_fitting" && (
+                      {selected.task_type !== "spatial_fitting" && selected.task_type !== "shelf_fitting" && selected.task_type !== "door_passage" && selected.task_type !== "perspective_taking" && (
                       <div>
                         <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">After (simulation)</p>
                         <div className="grid grid-cols-2 gap-1.5">

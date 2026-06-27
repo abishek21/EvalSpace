@@ -1,7 +1,0 @@
-transformers>=4.45.0
-accelerate
-bitsandbytes
-qwen-vl-utils
-Pillow
-runpod~=1.7.6
-torch

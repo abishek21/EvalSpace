@@ -41,6 +41,14 @@ from app.dise_fitting import (
     GAP_TYPES,
     COLORS as FITTING_COLORS,
 )
+from app.dise_ui import (
+    UIScenario,
+    generate_10_scenarios as ui_curated_10,
+    generate_long_horizon_scenario as ui_long_horizon,
+    render_html as ui_render_html,
+    screenshot as ui_screenshot,
+    get_source_code as ui_get_source_code,
+)
 
 
 # ─── Random scenario generator ──────────────────────────────────────
@@ -192,8 +200,113 @@ async def process_gt_job(job_id: str, config: dict):
         await _process_collision_gt(job_id, config)
     elif environment == "spatial_fitting":
         await _process_fitting_gt(job_id, config)
+    elif environment == "ui_visual":
+        await _process_ui_gt(job_id, config)
     else:
         await _process_stacking_gt(job_id, config)
+
+
+# ─── UI Visual Coding GT ────────────────────────────────────────────
+
+async def _process_ui_gt(job_id: str, config: dict):
+    """Generate UI visual coding ground truth dataset."""
+    try:
+        use_curated = config.get("use_curated", True)
+        dataset_name = config.get("name", f"ui_visual-{int(datetime.now().timestamp())}")
+
+        db.update_job(job_id, {
+            "status": "generating",
+            "started_at": datetime.now().isoformat(),
+        })
+
+        ui_mode = config.get("ui_mode", "curated")
+        if ui_mode == "long_horizon":
+            scenarios = ui_long_horizon()
+        else:
+            scenarios = ui_curated_10()
+        num_scenarios = len(scenarios)
+        print(f"\n{'='*55}")
+        print(f"🖥️ Generating UI Visual Coding dataset: {dataset_name}")
+        print(f"   {num_scenarios} scenarios ({ui_mode})")
+
+        dataset_id = str(uuid4())
+        all_scenarios = []
+
+        for idx, sc in enumerate(scenarios):
+            print(f"\n[{idx+1}/{num_scenarios}] {sc.scene_id} — {sc.instruction[:50]}")
+
+            # Render screenshot
+            html_code = ui_get_source_code(sc)
+            img_b64 = ui_screenshot(html_code)
+
+            scenario_data = {
+                "id": str(uuid4()),
+                "dataset_id": dataset_id,
+                "scene_id": sc.scene_id,
+                "prompt": sc.instruction,
+                "difficulty": sc.difficulty,
+                "category": "ui_visual",
+                "ground_truth": {
+                    "answer": "pass",  # GT is that constraints should pass
+                    "task_type": sc.task_type,
+                    "html_code": html_code,
+                    "before_images": [img_b64],
+                    "constraints": [
+                        {
+                            "type": c.type,
+                            "selector": c.selector,
+                            "params": c.params,
+                            "description": c.description,
+                        }
+                        for c in sc.constraints
+                    ],
+                    "elements": [
+                        {
+                            "id": el.id,
+                            "type": el.el_type,
+                            "x": el.x, "y": el.y,
+                            "width": el.width, "height": el.height,
+                            "content": el.content,
+                        }
+                        for el in sc.elements
+                    ],
+                },
+                "source": {"dataset": "ui:visual"},
+            }
+            all_scenarios.append(scenario_data)
+            print(f"  ✅ {sc.task_type} | constraints: {len(sc.constraints)}")
+
+            db.update_job_progress(job_id, {
+                "scenes_processed": idx + 1,
+                "scenarios_total": num_scenarios,
+            })
+
+        # Save dataset
+        db.create_dataset({
+            "id": dataset_id,
+            "name": dataset_name,
+            "task_type": "ui_visual",
+            "scenario_count": num_scenarios,
+            "created_at": datetime.now().isoformat(),
+            "job_id": job_id,
+            "config": config,
+        })
+        db.add_scenarios(all_scenarios)
+
+        db.update_job(job_id, {
+            "status": "completed",
+            "dataset_id": dataset_id,
+            "completed_at": datetime.now().isoformat(),
+        })
+
+        print(f"\n{'='*55}")
+        print(f"✅ UI dataset '{dataset_name}' saved: {num_scenarios} scenarios")
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        db.update_job(job_id, {"status": "failed", "error": f"{e.__class__.__name__}: {e}"})
+        raise
 
 
 # ─── Spatial Fitting GT ──────────────────────────────────────────────

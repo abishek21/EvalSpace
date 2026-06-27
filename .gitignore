@@ -3,43 +3,30 @@ __pycache__/
 *.pyc
 *.pyo
 venv/
-.venv/
-*.egg-info/
+.env
 
 # Node
 node_modules/
 .next/
 
-# Environment
-.env
-.env.local
-
-# Data / DB
-backend/data/
-backend/*.db
-backend/*.json
-!backend/package.json
-
-# Build artifacts
-dist/
-build/
-*.zip
-
 # OS
 .DS_Store
-Thumbs.db
+
+# Data (JSON DB + generated pairs — large base64 images)
+backend/data/
+
+# Generated preview/review HTML files (ad-hoc, not source code)
+backend/models/so101/*.html
+backend/models/so101/*.png
+backend/quality_preview.html
+
+# Prototype/scratch renders
+backend/perspective_proto/
+backend/scenes/
+
+# Pitch deck assets
+evalspace-vc-deck/
 
 # IDE
 .vscode/
 .idea/
-
-# Notebooks checkpoints
-.ipynb_checkpoints/
-
-# Generated previews
-backend/quality_preview.html
-quality_comparison.html
-
-# Output dirs
-output/
-scenes/

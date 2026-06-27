@@ -9,7 +9,7 @@ type Step = 1 | 2 | 3;
 export default function GeneratePage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>(1);
-  const [environment, setEnvironment] = useState<"stacking_stability" | "collision_prediction" | "spatial_fitting">("stacking_stability");
+  const [environment, setEnvironment] = useState<"stacking_stability" | "collision_prediction" | "spatial_fitting" | "ui_visual">("stacking_stability");
   const [numStable, setNumStable] = useState(5);
   const [numUnstable, setNumUnstable] = useState(5);
   const [mode, setMode] = useState<"curated" | "random">("random");
@@ -26,6 +26,7 @@ export default function GeneratePage() {
       stacking_stability: "mujoco:stacking",
       collision_prediction: "mujoco:collision",
       spatial_fitting: "mujoco:fitting",
+      ui_visual: "ui:visual",
     };
     const body = {
       dataset: datasetMap[environment] || "mujoco:stacking",
@@ -190,13 +191,27 @@ export default function GeneratePage() {
                 </div>
               </button>
 
-              <div className="w-full text-left p-5 rounded-xl border border-gray-100 opacity-40">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">🌉</span>
-                  <p className="font-medium text-gray-900">Bridge Support</p>
+              <button
+                onClick={() => { setEnvironment("ui_visual"); setStep(2); }}
+                className={`w-full text-left p-5 rounded-xl border-2 transition hover:shadow-sm ${
+                  environment === "ui_visual" ? "border-sky-200 bg-sky-50/50" : "border-gray-100 hover:border-gray-200"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🖥️</span>
+                      <p className="font-medium text-gray-900">UI Visual Coding</p>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-0.5 ml-7">
+                      Can the model modify HTML/CSS to match layout instructions? Renders screenshots, evaluates with DOM constraint checks.
+                    </p>
+                  </div>
+                  <svg className="w-5 h-5 text-sky-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                  </svg>
                 </div>
-                <p className="text-sm text-gray-400 mt-0.5 ml-7">Coming soon — Can a structure support a load?</p>
-              </div>
+              </button>
             </div>
           </div>
         )}
@@ -207,6 +222,34 @@ export default function GeneratePage() {
             <h2 className="text-xl font-semibold text-gray-900 mb-1">Configure generation</h2>
             <p className="text-sm text-gray-500 mb-6">Set the number of scenarios and camera views</p>
 
+            {environment === "ui_visual" ? (
+              /* UI Visual — simplified settings (curated only) */
+              <div className="space-y-6 mb-8">
+                <div className="rounded-xl bg-sky-50 border border-sky-200 p-5">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-2xl">🖥️</span>
+                    <div>
+                      <p className="font-medium text-gray-900">10 Curated UI Scenarios</p>
+                      <p className="text-sm text-gray-500">Position, centering, and spacing tasks across randomized UI layouts</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-3 text-center text-sm">
+                    <div className="bg-white rounded-lg p-3 border border-sky-100">
+                      <p className="text-lg font-bold text-sky-600">4</p>
+                      <p className="text-xs text-gray-500">Position</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border border-sky-100">
+                      <p className="text-lg font-bold text-sky-600">4</p>
+                      <p className="text-xs text-gray-500">Centering</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border border-sky-100">
+                      <p className="text-lg font-bold text-sky-600">2</p>
+                      <p className="text-xs text-gray-500">Spacing / Swap</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
             <div className="space-y-6 mb-8">
               {/* Mode */}
               <div>
@@ -327,6 +370,7 @@ export default function GeneratePage() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Summary */}
             <div className="rounded-xl border border-gray-100 p-5 mb-8">
@@ -377,11 +421,11 @@ export default function GeneratePage() {
             <div className="rounded-xl bg-gray-50 p-5 mb-8 text-sm text-gray-600 space-y-2">
               <div className="flex justify-between">
                 <span>Environment</span>
-                <span className="text-gray-900">{environment === "collision_prediction" ? "Collision Prediction" : environment === "spatial_fitting" ? "Spatial Fitting" : "Stacking Stability"}</span>
+                <span className="text-gray-900">{environment === "collision_prediction" ? "Collision Prediction" : environment === "spatial_fitting" ? "Spatial Fitting" : environment === "ui_visual" ? "UI Visual Coding" : "Stacking Stability"}</span>
               </div>
               <div className="flex justify-between">
                 <span>Mode</span>
-                <span className="text-gray-900">{mode === "curated" ? "Curated (10)" : `Random (${numStable} ${environment === "collision_prediction" ? "hit" : environment === "spatial_fitting" ? "fits" : "stable"}, ${numUnstable} ${environment === "collision_prediction" ? "miss" : environment === "spatial_fitting" ? "no-fit" : "unstable"})`}</span>
+                <span className="text-gray-900">{environment === "ui_visual" ? "Curated (10 spatial tasks)" : mode === "curated" ? "Curated (10)" : `Random (${numStable} ${environment === "collision_prediction" ? "hit" : environment === "spatial_fitting" ? "fits" : "stable"}, ${numUnstable} ${environment === "collision_prediction" ? "miss" : environment === "spatial_fitting" ? "no-fit" : "unstable"})`}</span>
               </div>
               <div className="flex justify-between">
                 <span>Questions</span>

@@ -227,10 +227,11 @@ function AnnotateInner() {
   // Handle eval_result pairs from Stage 2
   const isEvalResult = pair.pair_type === "eval_result";
   const isCollision = pair.category === "collision_prediction";
-  const isFitting = pair.category === "spatial_fitting";
+  const isFitting = pair.category === "spatial_fitting" || pair.category === "shelf_fitting";
+  const isUI = pair.category === "ui_visual";
   const displayModel = pair.model_name || (parse(pair.generation) as { model?: string } | null)?.model || "";
-  const envLabel = isFitting ? "🔲 Spatial Fitting" : isCollision ? "🎱 Collision" : "🏗️ Stacking";
-  const isPositiveGT = (gt: string) => gt === "stable" || gt === "fits" || gt === "hit";
+  const envLabel = isUI ? "🖥️ UI Visual" : pair.category === "shelf_fitting" ? "🗄️ Shelf Fitting" : isFitting ? "🔲 Spatial Fitting" : isCollision ? "🎱 Collision" : "🏗️ Stacking";
+  const isPositiveGT = (gt: string) => gt === "stable" || gt === "fits" || gt === "hit" || gt === "pass";
 
   // Normalize: build a unified view for both old and eval_result formats
   const effectiveV = v || (isEvalResult ? {
@@ -487,7 +488,15 @@ function AnnotateInner() {
               <button onClick={() => nav(-1)} disabled={idx <= 0} className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition">
                 <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
               </button>
-              <span className="text-sm text-gray-500 tabular-nums min-w-[60px] text-center">{idx + 1} / {total}</span>
+              <select
+                value={idx}
+                onChange={(e) => nav(Number(e.target.value) - idx)}
+                className="text-sm text-gray-500 tabular-nums bg-transparent border border-gray-200 rounded-lg px-2 py-1 cursor-pointer hover:border-gray-300 outline-none"
+              >
+                {Array.from({length: total}, (_, i) => (
+                  <option key={i} value={i}>{i + 1} / {total}</option>
+                ))}
+              </select>
               <button onClick={() => nav(1)} disabled={idx >= total - 1} className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition">
                 <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
               </button>
@@ -502,6 +511,27 @@ function AnnotateInner() {
             <p className="text-sm text-gray-700">{pair.prompt}</p>
 
             {/* Before / After images */}
+            {isUI ? (
+              /* UI Visual — large before/after screenshots side by side */
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wide">Before</p>
+                  {beforeImages.length > 0 ? (
+                    <img src={beforeImages[0]} alt="Before" className="w-full rounded-lg border border-gray-200 shadow-sm" />
+                  ) : (
+                    <div className="h-48 bg-gray-50 rounded-lg flex items-center justify-center text-xs text-gray-400">No image</div>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wide">After (VLM output)</p>
+                  {afterImages.length > 0 ? (
+                    <img src={afterImages[0]} alt="After" className="w-full rounded-lg border border-gray-200 shadow-sm" />
+                  ) : (
+                    <div className="h-48 bg-gray-50 rounded-lg flex items-center justify-center text-xs text-gray-400">No after image</div>
+                  )}
+                </div>
+              </div>
+            ) : (
             <div className={`grid ${isFitting ? "grid-cols-1" : "grid-cols-2"} gap-4`}>
               <div>
                 <p className="text-xs text-gray-400 mb-2 uppercase tracking-wide">{isFitting ? "Scene" : "Before"}</p>
@@ -526,6 +556,7 @@ function AnnotateInner() {
                 </div>
               </div>}
             </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className={`rounded-xl p-4 border ${isCorrect ? "border-emerald-200 bg-emerald-50/30" : "border-gray-200"}`}>
                 <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">MuJoCo Ground Truth</p>
@@ -544,9 +575,9 @@ function AnnotateInner() {
               </div>
               <div className={`rounded-xl p-4 border ${isCorrect ? "border-emerald-200 bg-emerald-50/30" : "border-rose-200 bg-rose-50/30"}`}>
                 <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">VLM Prediction</p>
-                <p className={`text-sm font-medium ${isPositiveGT(effectiveV.vlm_prediction) ? "text-emerald-700" : "text-rose-700"}`}>
+                <p className={`text-sm font-medium ${effectiveV.vlm_prediction === "unknown" ? "text-gray-400" : isPositiveGT(effectiveV.vlm_prediction) ? "text-emerald-700" : "text-rose-700"}`}>
                   {isFitting
-                    ? (effectiveV.vlm_prediction === "fits" ? "✓ FITS" : "✗ DOES NOT FIT")
+                    ? (effectiveV.vlm_prediction === "unknown" ? "⚠️ NO RESPONSE" : effectiveV.vlm_prediction === "fits" ? "✓ FITS" : "✗ DOES NOT FIT")
                     : effectiveV.vlm_prediction.toUpperCase()}
                 </p>
                 <p className="text-xs text-gray-500 mt-2 line-clamp-4">{effectiveV.vlm_reasoning}</p>
