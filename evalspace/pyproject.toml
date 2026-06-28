@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "evalspace"
+version = "0.1.0"
+description = "Verifiable visual-spatial reasoning environments for evaluating and training VLMs"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Abishek", email = "abishek@evalspace.ai"},
+]
+keywords = ["spatial-reasoning", "vlm", "evaluation", "mujoco", "benchmark", "rl"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+]
+
+dependencies = [
+    "numpy>=1.24",
+    "mujoco>=3.0",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+hub = ["datasets>=2.0", "huggingface_hub>=0.20"]
+eval = ["httpx>=0.25"]
+all = ["datasets>=2.0", "huggingface_hub>=0.20", "httpx>=0.25"]
+
+[project.urls]
+Homepage = "https://github.com/abishek21/EvalSpace"
+Repository = "https://github.com/abishek21/EvalSpace"
+
+[tool.setuptools.packages.find]
+include = ["evalspace*"]
