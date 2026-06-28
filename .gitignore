@@ -30,3 +30,4 @@ evalspace-vc-deck/
 # IDE
 .vscode/
 .idea/
+evalspace.egg-info/
