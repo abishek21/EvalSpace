@@ -74,9 +74,11 @@ class EvalSuite:
                 "reasoning": sc["ground_truth"]["reasoning"],
                 "difficulty": sc["metadata"].get("difficulty", ""),
             }
-            # Add extra views as image_view_1, image_view_2, etc.
+            # Add extra views as image_view_1, image_view_2, etc. (skip view 0 = same as primary)
             extra_images = sc.get("metadata", {}).get("images", [])
             for v, view_img in enumerate(extra_images):
+                if v == 0:
+                    continue  # view 0 is already the primary "image" column
                 row[f"image_view_{v}"] = view_img
             records.append(row)
 
