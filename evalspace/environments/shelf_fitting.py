@@ -248,10 +248,13 @@ def place_objects_on_shelf(rack: Rack, shelf_idx: int, rng: np.random.RandomStat
             obj = sample_object(rng)
             footprint = _shelf_footprint(obj)
 
-            # Must fit height and depth
-            if obj.height >= shelf.clearance - 0.01:
+            # Must fit height and depth with comfortable margin
+            # Object sits at shelf.y_pos + 0.012, top at + 0.012 + height
+            # Next shelf at shelf.y_pos + clearance
+            # Need: height < clearance - 0.012 (shelf board offset) - 0.02 (visual margin)
+            if obj.height >= shelf.clearance - 0.035:
                 continue
-            if obj.depth >= shelf.depth - 0.01:
+            if obj.depth >= shelf.depth - 0.02:
                 continue
 
             # Find a valid x position
@@ -556,11 +559,15 @@ def can_fit_physics(
     ]
     
     for euler in euler_for_orientation:
-        # Place target at gap center, on the shelf surface
+        # DROP from above: place target HIGH above the shelf, let gravity pull it down
+        # If it lands on the shelf surface cleanly → fits
+        # If it hits existing objects/walls and bounces off → no_fit
+        # If it's too tall (hits shelf above) → no_fit
+        drop_height = shelf.y_pos + shelf.clearance * 0.7  # drop from 70% of clearance height
         target_pos = [
             gap_center_x,
             0.0,
-            shelf.y_pos + 0.015,  # slightly above shelf surface
+            drop_height,
         ]
         
         try:
@@ -568,50 +575,122 @@ def can_fit_physics(
             model = mujoco.MjModel.from_xml_string(xml)
             data = mujoco.MjData(model)
             
-            # Record initial position
-            mujoco.mj_forward(model, data)
+            # Get IDs
             target_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "target")
-            initial_z = data.xpos[target_body_id][2]
             
-            # Simulate for 0.5 seconds (250 steps at 0.002 timestep)
-            for _ in range(250):
+            # Pre-check: would the object in this orientation exceed shelf clearance?
+            # Get the oriented bounding height
+            mujoco.mj_forward(model, data)
+            # Approximate oriented height from the body's geom bounds
+            target_geom_ids = []
+            for g in range(model.ngeom):
+                if model.geom_bodyid[g] == target_body_id:
+                    target_geom_ids.append(g)
+            
+            # Compute axis-aligned bounding box of target in current orientation
+            if target_geom_ids:
+                min_z = float('inf')
+                max_z = float('-inf')
+                for gid in target_geom_ids:
+                    gpos = data.geom_xpos[gid]
+                    gsize = model.geom_size[gid]
+                    gtype = model.geom_type[gid]
+                    if gtype == mujoco.mjtGeom.mjGEOM_BOX:
+                        half_h = gsize[2]
+                    elif gtype == mujoco.mjtGeom.mjGEOM_CYLINDER:
+                        half_h = gsize[1]
+                    elif gtype == mujoco.mjtGeom.mjGEOM_SPHERE:
+                        half_h = gsize[0]
+                    else:
+                        half_h = gsize[0]
+                    min_z = min(min_z, gpos[2] - half_h)
+                    max_z = max(max_z, gpos[2] + half_h)
+                
+                oriented_height = max_z - min_z
+                
+                # Height check: if oriented height > clearance, skip this orientation
+                if oriented_height > shelf.clearance - 0.005:
+                    continue
+            
+            # Depth check: approximate oriented depth
+            if target_geom_ids:
+                min_y = float('inf')
+                max_y = float('-inf')
+                for gid in target_geom_ids:
+                    gpos = data.geom_xpos[gid]
+                    gsize = model.geom_size[gid]
+                    gtype = model.geom_type[gid]
+                    if gtype == mujoco.mjtGeom.mjGEOM_BOX:
+                        half_d = gsize[1]
+                    elif gtype == mujoco.mjtGeom.mjGEOM_CYLINDER:
+                        half_d = gsize[0]  # radius
+                    elif gtype == mujoco.mjtGeom.mjGEOM_SPHERE:
+                        half_d = gsize[0]
+                    else:
+                        half_d = gsize[0]
+                    min_y = min(min_y, gpos[1] - half_d)
+                    max_y = max(max_y, gpos[1] + half_d)
+                
+                oriented_depth = max_y - min_y
+                if oriented_depth > shelf.depth - 0.005:
+                    continue
+            
+            # Now place on shelf surface (not drop) and check for lateral collisions
+            # Reset position to just above shelf
+            data.qpos[0] = gap_center_x  # x
+            data.qpos[1] = 0.0           # y
+            data.qpos[2] = shelf.y_pos + oriented_height / 2 + 0.005  # z: sitting on shelf
+            data.qvel[:] = 0  # no velocity
+            
+            mujoco.mj_forward(model, data)
+            initial_pos = data.xpos[target_body_id].copy()
+            
+            # Simulate for 0.3 seconds — let contacts resolve
+            for _ in range(150):
                 mujoco.mj_step(model, data)
             
             final_pos = data.xpos[target_body_id].copy()
             final_z = final_pos[2]
             
-            # Check 1: Did the object fall below the shelf? (gravity failure)
-            fell = final_z < shelf.y_pos - 0.02
+            # Check 1: Did the object fall off the shelf?
+            fell = final_z < shelf.y_pos - 0.03
             
-            # Check 2: Did it move too much laterally? (collision/overlap pushed it)
-            lateral_drift = abs(final_pos[0] - target_pos[0]) + abs(final_pos[1] - target_pos[1])
-            pushed_away = lateral_drift > 0.05  # more than 5cm drift
+            # Check 2: Was it pushed away by existing objects?
+            lateral_drift = abs(final_pos[0] - initial_pos[0]) + abs(final_pos[1] - initial_pos[1])
+            pushed_away = lateral_drift > 0.06  # more than 6cm drift = collision pushed it off
             
-            # Check 3: Is it still roughly at shelf height? (settled on shelf)
-            on_shelf = abs(final_z - initial_z) < 0.05  # within 5cm of initial
+            # Check 3: Is it still on the shelf (didn't fly up or sink)?
+            settled = abs(final_z - initial_pos[2]) < 0.03
             
-            # Check 4: contact forces — were there excessive penetrations?
-            has_bad_contact = False
+            # Check 4: Any active contacts with placed objects? (overlap detection)
+            has_overlap = False
             for c in range(data.ncon):
                 contact = data.contact[c]
-                if contact.dist < -0.01:  # penetration > 1cm
-                    has_bad_contact = True
-                    break
+                # Check if contact involves the target body
+                geom1_body = model.geom_bodyid[contact.geom1]
+                geom2_body = model.geom_bodyid[contact.geom2]
+                if target_body_id in (geom1_body, geom2_body):
+                    # Contact with non-shelf surface (another object)
+                    other_body = geom2_body if geom1_body == target_body_id else geom1_body
+                    # If penetration depth > 0.5cm with another OBJECT (not shelf/floor)
+                    if other_body > 1 and contact.dist < -0.005:  # body 0=world, 1=rack
+                        has_overlap = True
+                        break
             
-            if not fell and not pushed_away and on_shelf and not has_bad_contact:
+            if not fell and not pushed_away and settled and not has_overlap:
                 return True, (
                     f"Physics verified: object stable on shelf at euler={euler}. "
-                    f"Final z={final_z*100:.1f}cm (shelf at {shelf.y_pos*100:.1f}cm), "
-                    f"drift={lateral_drift*100:.1f}cm"
+                    f"Oriented height={oriented_height*100:.1f}cm < clearance={shelf.clearance*100:.0f}cm, "
+                    f"drift={lateral_drift*100:.1f}cm, no overlaps"
                 )
         except Exception as e:
             # XML build or simulation error — skip this orientation
             continue
     
     return False, (
-        f"Physics verified: object falls or overlaps in all orientations. "
+        f"Physics verified: object cannot fit in any orientation. "
         f"Dimensions {dims[0]*100:.0f}×{dims[1]*100:.0f}×{dims[2]*100:.0f}cm, "
-        f"shelf clearance {shelf.clearance*100:.0f}cm"
+        f"shelf clearance {shelf.clearance*100:.0f}cm, depth {shelf.depth*100:.0f}cm"
     )
 
 
@@ -629,10 +708,13 @@ def _build_object_geom(obj: ObjectSpec, name: str, pos: list) -> str:
 
     if obj.family == "bottle" or obj.family == "vase":
         r = w / 2
+        # Cap sphere sits at top of cylinder — total visual height = h + r
+        # Adjust so total stays within h (sphere overlaps cylinder top)
+        cyl_half = h/2 - r/2
         return f"""
     <body name="{name}" pos="{px:.4f} {py:.4f} {pz + h/2:.4f}">
-      <geom type="cylinder" size="{r:.4f} {h/2:.4f}" rgba="{rgba}"/>
-      <geom type="sphere" size="{r:.4f}" pos="0 0 {h/2:.4f}" rgba="{rgba}"/>
+      <geom type="cylinder" size="{r:.4f} {cyl_half:.4f}" rgba="{rgba}"/>
+      <geom type="sphere" size="{r:.4f}" pos="0 0 {cyl_half:.4f}" rgba="{rgba}"/>
     </body>"""
 
     if obj.family == "box" or obj.family == "book":
@@ -650,10 +732,11 @@ def _build_object_geom(obj: ObjectSpec, name: str, pos: list) -> str:
 
     if obj.family == "pot":
         r = w / 2
+        # Rim stays within declared height
         return f"""
     <body name="{name}" pos="{px:.4f} {py:.4f} {pz + h/2:.4f}">
-      <geom type="cylinder" size="{r:.4f} {h/2:.4f}" rgba="{rgba}"/>
-      <geom type="cylinder" size="{r + 0.01:.4f} 0.008" pos="0 0 {h/2:.4f}" rgba="{rgba}"/>
+      <geom type="cylinder" size="{r:.4f} {h/2 - 0.008:.4f}" rgba="{rgba}"/>
+      <geom type="cylinder" size="{r + 0.01:.4f} 0.008" pos="0 0 {h/2 - 0.008:.4f}" rgba="{rgba}"/>
     </body>"""
 
     if obj.family == "plate":
